@@ -1,0 +1,72 @@
+# === Java / JDK / JDeveloper / Glassfish ===
+*.class
+*.jar
+*.war
+*.ear
+*.log
+*.ctlg
+*.lock
+.jdeveloper/
+DefaultDomain/
+glassfish/domains/*/logs/
+glassfish/domains/*/generated/
+glassfish/domains/*/osgi-cache/
+
+# === Python / ML ===
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.h5
+*.pkl
+*.joblib
+
+# === Node.js / Hardhat ===
+node_modules/
+npm-debug.log*
+yarn-error.log*
+cache/
+artifacts/
+typechain-types/
+
+# === Docker ===
+docker-compose.override.yml
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+nbproject/
+
+# === OS ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# === Large files ===
+*.exe
+*.zip
+*.gz
+*.tar
+*.msi
+*.dmg
+*.iso
+
+# === Secrets ===
+.env
+.env.local
+*.pem
+*.key
+credentials.json
