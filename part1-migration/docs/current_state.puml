@@ -1,0 +1,75 @@
+@startuml current_state
+!theme plain
+title ArchNav Legacy Application — Current State Architecture\n(Windows Local Installation)
+
+skinparam rectangle {
+    BackgroundColor<<stack1>> #E8F5E9
+    BackgroundColor<<stack2>> #E3F2FD
+    BackgroundColor<<infra>> #FFF3E0
+    BorderColor #546E7A
+    RoundCorner 10
+}
+skinparam component {
+    BackgroundColor #FFFFFF
+    BorderColor #37474F
+}
+skinparam database {
+    BackgroundColor #FFF9C4
+    BorderColor #F57F17
+}
+skinparam node {
+    BackgroundColor #F3E5F5
+    BorderColor #6A1B9A
+}
+
+node "Developer Workstation (Windows)" as workstation {
+
+    rectangle "Stack 1: Security / RBAC" <<stack1>> as stack1 {
+        component "Fortress Web UI\n:8080/fortress-web\n(test / password)" as fweb
+        component "Fortress REST API\n:8080/fortress-rest" as frest
+        component "Fortress Core 2.0.0-RC1\n(RBAC Engine)" as fcore
+        component "Apache Tomcat 8.5.11\n:8080\n(tcmanager / m@nager123)" as tomcat
+        database "ApacheDS 2.0.0-M23\nLDAP :389\n(uid=admin,ou=system / secret)" as ldap
+
+        fweb -down-> frest
+        frest -down-> fcore
+        fcore -down-> tomcat
+        tomcat -down-> ldap
+    }
+
+    rectangle "Stack 2: Business Application" <<stack2>> as stack2 {
+        component "ArchNav Web UI\n:9999/archemy/faces/login.jspx" as aui
+        component "Oracle ADF 11.1.2.4\n(JSF + EL Resolver)" as adf
+        component "ArchNav Security\n(archemy-security-1.0-SNAPSHOT)" as asec
+        component "GlassFish 3.1.2\n:9999 (HTTP) / :4848 (Admin)\n(admin / Claude1960%)" as gf
+        database "MySQL 5.7\n:3306\nSchema: archemy\n(archemy / archemydb1960%)" as mysql
+
+        aui -down-> adf
+        adf -down-> asec
+        asec -down-> gf
+        gf -down-> mysql
+    }
+
+    rectangle "Build Tools" <<infra>> as tools {
+        component "JDK 1.7.0_80" as jdk
+        component "JDeveloper 11.1.2.4.0" as jdev
+        component "Maven 3.3.9" as mvn
+        component "Cygwin (wget, git)" as cyg
+        component "Apache Directory Studio" as ads
+    }
+}
+
+' Cross-stack communication
+asec -left-> frest : "REST API calls\n(RBAC auth check)"
+adf -left-> ldap : "LDAP bind\n(user authentication)"
+
+note right of workstation
+  **Environment Requirements**
+  - All 5 services must run simultaneously
+  - Manual installation: 17 steps
+  - Windows-only (JDeveloper dependency)
+  - No scalability / no fault tolerance
+  - Approx. 13 installer packages from Google Drive
+end note
+
+@enduml

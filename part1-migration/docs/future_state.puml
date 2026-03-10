@@ -1,0 +1,84 @@
+@startuml future_state
+!theme plain
+title ArchNav Cloud Migration — Future State Architecture\n(Docker Containerized + Cloud VM Deployment)
+
+skinparam rectangle {
+    BackgroundColor<<docker>> #E3F2FD
+    BackgroundColor<<vm>> #F3E5F5
+    BackgroundColor<<user>> #FFFDE7
+    BorderColor #546E7A
+    RoundCorner 10
+}
+skinparam component {
+    BackgroundColor #FFFFFF
+    BorderColor #37474F
+}
+skinparam database {
+    BackgroundColor #FFF9C4
+    BorderColor #F57F17
+}
+skinparam cloud {
+    BackgroundColor #E8F5E9
+    BorderColor #2E7D32
+}
+
+actor "End User\n(Browser)" as user
+
+cloud "Cloud Platform (Azure / AWS)" as cloud {
+
+    node "Ubuntu VM (22.04 LTS)" <<vm>> as vm {
+
+        rectangle "Docker Engine + docker-compose" <<docker>> as docker {
+
+            rectangle "archnav-net (bridge network)" as net {
+
+                component "archnav-apacheds\nApacheDS 2.0.0-M23\nLDAP :10389 (internal)\nExposed :389" as c_ldap
+
+                component "archnav-tomcat\nTomcat 8.5.11\nFortress REST + Web\n:8080" as c_tomcat
+
+                component "archnav-glassfish\nGlassFish 3.1.2\nArchNav + ADF 11.1.2.4\n:9999 (HTTP) / :4848 (Admin)" as c_gf
+
+                database "archnav-mysql\nMySQL 5.7\n:3306\nSchema: archemy" as c_mysql
+            }
+
+            rectangle "Persistent Volumes" as vols {
+                storage "mysql-data" as v_mysql
+                storage "apacheds-data" as v_ldap
+            }
+        }
+    }
+}
+
+' Container dependencies
+c_tomcat -down-> c_ldap : "LDAP auth\nldap://apacheds:389"
+c_gf -down-> c_mysql : "JDBC\nmysql:3306"
+c_gf -down-> c_ldap : "LDAP bind\napacheds:389"
+c_gf -left-> c_tomcat : "Fortress REST\nhttp://tomcat:8080"
+
+' Volume mounts
+c_mysql .down.> v_mysql : mount
+c_ldap .down.> v_ldap : mount
+
+' User access
+user -right-> c_gf : "http://<public-ip>:9999\n/archemy/faces/login.jspx"
+user -right-> c_tomcat : "http://<public-ip>:8080\n/fortress-web"
+
+note right of docker
+  **Docker Compose Services**
+  | Container | Image Base | Port |
+  | archnav-mysql | mysql:5.7 | 3306 |
+  | archnav-apacheds | openjdk:7 + ApacheDS | 389 |
+  | archnav-tomcat | tomcat:8.5-jre7 + Fortress | 8080 |
+  | archnav-glassfish | openjdk:7 + GlassFish 3.1.2 | 9999, 4848 |
+end note
+
+note bottom of cloud
+  **Cloud-Based Migration (no code changes)**
+  - Same JDK 1.7, same app binaries
+  - Zero source code modification
+  - Infrastructure as Code (Dockerfiles + compose)
+  - One-command deployment: docker-compose up -d
+  - Horizontal scaling possible via replicas
+end note
+
+@enduml

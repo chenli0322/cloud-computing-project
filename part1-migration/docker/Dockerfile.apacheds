@@ -1,0 +1,45 @@
+FROM eclipse-temurin:8-jdk
+
+LABEL description="ApacheDS 2.0.0-M23 with Fortress schema for ArchNav"
+
+ENV APACHEDS_VERSION=2.0.0-M23
+ENV FORTRESS_VERSION=2.0.0-RC1
+ENV APACHEDS_DATA=/var/lib/apacheds
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    ldap-utils \
+    maven \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install ApacheDS
+RUN wget -q https://archive.apache.org/dist/directory/apacheds/dist/${APACHEDS_VERSION}/apacheds-${APACHEDS_VERSION}-amd64.deb \
+    && dpkg -i apacheds-${APACHEDS_VERSION}-amd64.deb \
+    && rm apacheds-${APACHEDS_VERSION}-amd64.deb
+
+# Download and build Fortress Core for LDAP schema and data loading
+RUN wget -q https://archive.apache.org/dist/directory/fortress/dist/${FORTRESS_VERSION}/fortress-core-${FORTRESS_VERSION}-source-release.zip \
+    && unzip -q fortress-core-${FORTRESS_VERSION}-source-release.zip -d /opt \
+    && rm fortress-core-${FORTRESS_VERSION}-source-release.zip
+
+WORKDIR /opt/fortress-core-${FORTRESS_VERSION}
+
+# Configure build.properties for ApacheDS
+RUN cp build.properties.example build.properties \
+    && sed -i 's/^ldap.server.type=.*/ldap.server.type=apacheds/' build.properties \
+    && sed -i 's/^ldap.host=.*/ldap.host=localhost/' build.properties \
+    && sed -i 's/^ldap.port=.*/ldap.port=10389/' build.properties
+
+# Build Fortress Core (offline schema import will happen at runtime)
+RUN mvn install -DskipTests -q
+
+# Copy the startup script
+COPY scripts/start-apacheds.sh /start-apacheds.sh
+RUN chmod +x /start-apacheds.sh
+
+EXPOSE 389 10389
+
+CMD ["/start-apacheds.sh"]

@@ -1,0 +1,90 @@
+FROM maven:3.8-eclipse-temurin-8 AS builder
+
+ENV FORTRESS_VERSION=2.0.0-RC1
+
+# Install unzip and wget
+RUN apt-get update && apt-get install -y unzip wget && rm -rf /var/lib/apt/lists/*
+
+# Download Fortress Core source
+RUN wget -q https://archive.apache.org/dist/directory/fortress/dist/${FORTRESS_VERSION}/fortress-core-${FORTRESS_VERSION}-source-release.zip \
+    && unzip -q fortress-core-${FORTRESS_VERSION}-source-release.zip -d /opt \
+    && rm fortress-core-${FORTRESS_VERSION}-source-release.zip
+
+WORKDIR /opt/fortress-core-${FORTRESS_VERSION}
+
+# Configure build.properties for ApacheDS (pointing to apacheds container)
+RUN cp build.properties.example build.properties \
+    && sed -i 's/^ldap.server.type=.*/ldap.server.type=apacheds/' build.properties \
+    && sed -i 's/^ldap.host=.*/ldap.host=apacheds/' build.properties \
+    && sed -i 's/^ldap.port=.*/ldap.port=389/' build.properties
+
+# Build Fortress Core
+RUN mvn install -DskipTests -q
+
+# Download and build Fortress REST
+RUN wget -q https://archive.apache.org/dist/directory/fortress/dist/${FORTRESS_VERSION}/fortress-rest-${FORTRESS_VERSION}-source-release.zip \
+    && unzip -q fortress-rest-${FORTRESS_VERSION}-source-release.zip -d /opt \
+    && rm fortress-rest-${FORTRESS_VERSION}-source-release.zip
+
+WORKDIR /opt/fortress-rest-${FORTRESS_VERSION}
+RUN cp /opt/fortress-core-${FORTRESS_VERSION}/config/fortress.properties src/main/resources/ \
+    && mvn clean package -DskipTests
+
+# Download and build Fortress Web
+RUN wget -q https://archive.apache.org/dist/directory/fortress/dist/${FORTRESS_VERSION}/fortress-web-${FORTRESS_VERSION}-source-release.zip \
+    && unzip -q fortress-web-${FORTRESS_VERSION}-source-release.zip -d /opt \
+    && rm fortress-web-${FORTRESS_VERSION}-source-release.zip
+
+WORKDIR /opt/fortress-web-${FORTRESS_VERSION}
+RUN cp /opt/fortress-core-${FORTRESS_VERSION}/config/fortress.properties src/main/resources/ \
+    && mvn clean package -DskipTests
+
+# Debug: list built artifacts
+RUN echo "=== Fortress Core target ===" && ls /opt/fortress-core-2.0.0-RC1/target/*.jar 2>/dev/null || echo "no jars" \
+    && echo "=== Fortress REST target ===" && ls /opt/fortress-rest-2.0.0-RC1/target/*.war 2>/dev/null || echo "no wars" \
+    && echo "=== Fortress Web target ===" && ls /opt/fortress-web-2.0.0-RC1/target/*.war 2>/dev/null || echo "no wars"
+
+# ---- Runtime stage ----
+FROM tomcat:8.5-jdk8-temurin
+
+ENV FORTRESS_VERSION=2.0.0-RC1
+
+# Remove default webapps
+RUN rm -rf /usr/local/tomcat/webapps/*
+
+# Copy fortress-realm-proxy to Tomcat lib
+COPY --from=builder /opt/fortress-core-${FORTRESS_VERSION}/target/fortress-core-${FORTRESS_VERSION}.jar \
+    /usr/local/tomcat/lib/fortress-realm-proxy.jar
+
+# Copy Fortress REST war
+COPY --from=builder /opt/fortress-rest-${FORTRESS_VERSION}/target/fortress-rest.war \
+    /usr/local/tomcat/webapps/fortress-rest.war
+
+# Copy Fortress Web war
+COPY --from=builder /opt/fortress-web-${FORTRESS_VERSION}/target/fortress-web.war \
+    /usr/local/tomcat/webapps/fortress-web.war
+
+# Configure tomcat-users.xml
+RUN cat > /usr/local/tomcat/conf/tomcat-users.xml <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<tomcat-users xmlns="http://tomcat.apache.org/xml"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"
+              version="1.0">
+  <role rolename="manager-script"/>
+  <role rolename="manager-gui"/>
+  <user username="tcmanager" password="m@nager123" roles="manager-script"/>
+  <user username="tcmanagergui" password="m@nager123" roles="manager-gui"/>
+</tomcat-users>
+EOF
+
+# Set Fortress LDAP connection properties via JAVA_OPTS
+ENV JAVA_OPTS="-Dfortress.admin.user=uid=admin,ou=system \
+    -Dfortress.admin.pw=secret \
+    -Dfortress.config.root=ou=Config,dc=example,dc=com \
+    -Dfortress.port=389 \
+    -Dfortress.host=apacheds"
+
+EXPOSE 8080
+
+CMD ["catalina.sh", "run"]

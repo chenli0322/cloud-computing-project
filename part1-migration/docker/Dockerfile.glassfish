@@ -1,0 +1,87 @@
+FROM ubuntu:18.04
+
+LABEL description="Glassfish 3.1.2 with JDK 7, ADF Essentials, and ArchNav application"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    curl \
+    rpm2cpio \
+    cpio \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Install JDK 7 ----
+COPY packages/jdk-7u80-linux-x64.zip /tmp/jdk.zip
+RUN mkdir -p /tmp/jdk-extract /usr/lib/jvm \
+    && cd /tmp/jdk-extract \
+    && unzip -q /tmp/jdk.zip \
+    && rpm2cpio *.rpm | cpio -idm \
+    && mv ./usr/java/jdk1.7.0_80 /usr/lib/jvm/jdk1.7.0_80 \
+    && find /usr/lib/jvm/jdk1.7.0_80 -name "*.pack" -exec sh -c \
+       '/usr/lib/jvm/jdk1.7.0_80/bin/unpack200 -r "$1" "${1%.pack}.jar"' _ {} \; \
+    && rm -rf /tmp/jdk-extract /tmp/jdk.zip
+
+ENV JAVA_HOME=/usr/lib/jvm/jdk1.7.0_80
+ENV AS_JAVA=/usr/lib/jvm/jdk1.7.0_80
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# Verify JDK works
+RUN ls -la $JAVA_HOME/jre/lib/rt.jar && $JAVA_HOME/bin/java -version
+
+# ---- Install Glassfish 3.1.2 ----
+RUN wget -q https://download.oracle.com/glassfish/3.1.2/release/glassfish-3.1.2.zip -O /tmp/glassfish.zip \
+    || wget -q https://archive.apache.org/dist/glassfish/3.1.2/release/glassfish-3.1.2.zip -O /tmp/glassfish.zip \
+    || wget -q https://repo1.maven.org/maven2/org/glassfish/main/distributions/glassfish/3.1.2/glassfish-3.1.2.zip -O /tmp/glassfish.zip \
+    && unzip -q /tmp/glassfish.zip -d /opt \
+    && rm /tmp/glassfish.zip
+
+ENV GLASSFISH_HOME=/opt/glassfish3/glassfish
+ENV AS_ADMIN_PASSWORD=Claude1960%
+
+# Point Glassfish to JDK 7
+RUN echo "AS_JAVA=$JAVA_HOME" >> ${GLASSFISH_HOME}/config/asenv.conf
+
+# ---- Configure Glassfish domain ----
+RUN echo "AS_ADMIN_PASSWORD=" > /tmp/pwdfile_old \
+    && echo "AS_ADMIN_NEWPASSWORD=${AS_ADMIN_PASSWORD}" >> /tmp/pwdfile_old \
+    && ${GLASSFISH_HOME}/bin/asadmin start-domain domain1 \
+    && ${GLASSFISH_HOME}/bin/asadmin --user admin --passwordfile /tmp/pwdfile_old change-admin-password --domain_name domain1 \
+    && echo "AS_ADMIN_PASSWORD=${AS_ADMIN_PASSWORD}" > /tmp/pwdfile \
+    && ${GLASSFISH_HOME}/bin/asadmin stop-domain domain1 \
+    && rm /tmp/pwdfile_old
+
+# Change HTTP listener port from 8080 to 9999
+RUN ${GLASSFISH_HOME}/bin/asadmin start-domain domain1 \
+    && ${GLASSFISH_HOME}/bin/asadmin --secure=false --user admin --passwordfile /tmp/pwdfile \
+       set server-config.network-config.network-listeners.network-listener.http-listener-1.port=9999 \
+    && ${GLASSFISH_HOME}/bin/asadmin stop-domain domain1
+
+# ---- Install ADF Essentials ----
+COPY packages/adf-essentials.zip /tmp/adf-essentials.zip
+RUN unzip -j -o /tmp/adf-essentials.zip -d ${GLASSFISH_HOME}/domains/domain1/lib \
+    && rm /tmp/adf-essentials.zip
+
+# ---- Copy required JAR files ----
+COPY packages/mysql-connector-java-5.1.40-bin.jar ${GLASSFISH_HOME}/domains/domain1/lib/
+COPY packages/adfutils.jar ${GLASSFISH_HOME}/domains/domain1/lib/
+COPY packages/archemy-security-1.0-SNAPSHOT-jar-with-dependencies.jar ${GLASSFISH_HOME}/domains/domain1/lib/
+COPY packages/glassfish.jstl_1.2.0.1.jar ${GLASSFISH_HOME}/modules/
+
+# ---- Configure JVM options ----
+RUN ${GLASSFISH_HOME}/bin/asadmin start-domain domain1 \
+    && ${GLASSFISH_HOME}/bin/asadmin --secure=false --user admin --passwordfile /tmp/pwdfile \
+       create-jvm-options "-XX\\:MaxPermSize=512m" \
+    && ${GLASSFISH_HOME}/bin/asadmin --secure=false --user admin --passwordfile /tmp/pwdfile \
+       create-jvm-options "-Doracle.mds.cache=simple" \
+    && ${GLASSFISH_HOME}/bin/asadmin stop-domain domain1
+
+COPY scripts/start-glassfish.sh /start-glassfish.sh
+RUN chmod +x /start-glassfish.sh
+
+COPY packages/archemy.ear /opt/archemy.ear
+
+EXPOSE 9999 4848
+
+CMD ["/start-glassfish.sh"]

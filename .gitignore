@@ -37,6 +37,9 @@ typechain-types/
 
 # === Docker ===
 docker-compose.override.yml
+**/packages/
+*.bak
+build_log.txt
 
 # === IDE ===
 .idea/

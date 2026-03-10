@@ -1,0 +1,8 @@
+FROM mysql:5.7
+
+# Copy initialization SQL script
+# MySQL 5.7 image auto-executes .sql files in /docker-entrypoint-initdb.d/
+COPY init.sql /docker-entrypoint-initdb.d/01-init.sql
+
+# MySQL default port
+EXPOSE 3306
