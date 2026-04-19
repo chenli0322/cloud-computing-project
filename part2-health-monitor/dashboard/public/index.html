@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Decentralized Health Monitoring — Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header>
+    <h1>Decentralized Health Monitoring System</h1>
+    <p class="sub">P2P + IoT + ML + Blockchain &mdash; NYU Cloud Computing, Spring 2026</p>
+  </header>
+
+  <section class="kpi-row">
+    <div class="kpi"><div class="label">Heart Rate</div><div class="value" id="hr">—</div><div class="unit">bpm</div></div>
+    <div class="kpi"><div class="label">Body Temp</div><div class="value" id="temp">—</div><div class="unit">°C</div></div>
+    <div class="kpi"><div class="label">SpO₂</div><div class="value" id="spo2">—</div><div class="unit">%</div></div>
+    <div class="kpi alt"><div class="label">Anomalies detected</div><div class="value" id="anomCount">0</div></div>
+    <div class="kpi alt"><div class="label">On-chain records</div><div class="value" id="bcCount">0</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Live Sensor Stream</h2>
+      <canvas id="chart" width="600" height="200"></canvas>
+      <p class="hint">Heart rate over the last 60 samples</p>
+    </div>
+
+    <div class="card">
+      <h2>P2P Network</h2>
+      <p>Self: <code id="self">—</code></p>
+      <p>Master: <code id="master">—</code></p>
+      <ul id="peers"></ul>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Anomaly Events (ML)</h2>
+      <table><thead><tr>
+        <th>Time</th><th>Device</th><th>HR</th><th>Temp</th><th>SpO₂</th><th>Score</th>
+      </tr></thead><tbody id="anomBody"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>Blockchain Log (Sepolia)</h2>
+      <table><thead><tr>
+        <th>Time</th><th>Kind</th><th>Device</th><th>Block</th><th>Tx</th>
+      </tr></thead><tbody id="bcBody"></tbody></table>
+    </div>
+  </section>
+
+  <footer>
+    <span id="wsstatus">connecting…</span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

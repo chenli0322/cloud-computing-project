@@ -1,0 +1,195 @@
+{
+  "network": "sepolia",
+  "address": "0x89983910f6AE98Ea081356148B433cA3C6de283B",
+  "txHash": "0x5a39da1f86c8ef281413ee7e2996e039a1b9de9ae6c2926923e07b038f3f7496",
+  "block": 10687227,
+  "deployer": "0x4775f048c80837A659662daCae3C944b75818dDb",
+  "abi": [
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "AnomalyLogged",
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "eventHash",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "reporter",
+          "indexed": true
+        },
+        {
+          "type": "string",
+          "name": "deviceId",
+          "indexed": false
+        },
+        {
+          "type": "string",
+          "name": "anomalyKind",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "timestamp",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "entries",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "uint256",
+          "name": ""
+        }
+      ],
+      "outputs": [
+        {
+          "type": "bytes32",
+          "name": "eventHash"
+        },
+        {
+          "type": "uint256",
+          "name": "timestamp"
+        },
+        {
+          "type": "address",
+          "name": "reporter"
+        },
+        {
+          "type": "string",
+          "name": "deviceId"
+        },
+        {
+          "type": "string",
+          "name": "anomalyKind"
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "exists",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "eventHash"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "bool",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "getEntry",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "uint256",
+          "name": "id"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "tuple",
+          "name": "",
+          "components": [
+            {
+              "type": "bytes32",
+              "name": "eventHash"
+            },
+            {
+              "type": "uint256",
+              "name": "timestamp"
+            },
+            {
+              "type": "address",
+              "name": "reporter"
+            },
+            {
+              "type": "string",
+              "name": "deviceId"
+            },
+            {
+              "type": "string",
+              "name": "anomalyKind"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "indexOfHash",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": ""
+        }
+      ],
+      "outputs": [
+        {
+          "type": "uint256",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "logAnomaly",
+      "constant": false,
+      "payable": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "eventHash"
+        },
+        {
+          "type": "string",
+          "name": "deviceId"
+        },
+        {
+          "type": "string",
+          "name": "anomalyKind"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "uint256",
+          "name": "id"
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "total",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [],
+      "outputs": [
+        {
+          "type": "uint256",
+          "name": ""
+        }
+      ]
+    }
+  ]
+}
