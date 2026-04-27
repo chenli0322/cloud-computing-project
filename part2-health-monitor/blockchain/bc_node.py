@@ -1,14 +1,30 @@
 """
 Blockchain P2P node.
 
-Listens for MSG_ANOMALY from the P2P network.  For each anomaly, submits a
-transaction to HealthLog.logAnomaly() on Sepolia, waits for inclusion, and
-broadcasts MSG_BC_LOGGED with the tx hash so the Dashboard can display it.
+Listens for MSG_ANOMALY from the P2P network.  For each anomaly:
+
+  1. Uploads the full raw anomaly JSON to AWS S3
+     (s3://$ANOMALY_S3_BUCKET/anomalies/<eventHash>.json) so an external
+     auditor can later fetch the complete record, recompute its SHA-256,
+     and verify it matches the on-chain hash.
+  2. Submits HealthLog.logAnomaly() on Sepolia with the SHA-256 hash
+     plus the device id and a short anomaly-kind string.
+  3. Waits for inclusion, then broadcasts MSG_BC_LOGGED carrying the
+     tx hash, block number, gas used, AND the S3 URI of the off-chain
+     archive, so the Dashboard can render both the on-chain link and the
+     off-chain raw record.
 
 Requires env vars (via blockchain/.env):
-    SEPOLIA_RPC_URL
-    PRIVATE_KEY
-    HEALTHLOG_ADDRESS
+    SEPOLIA_RPC_URL          Infura/Alchemy https endpoint
+    PRIVATE_KEY              wallet that pays gas
+    HEALTHLOG_ADDRESS        deployed contract address (or read from deployment.json)
+    AWS_ACCESS_KEY_ID        IAM user with PutObject on the bucket
+    AWS_SECRET_ACCESS_KEY    "
+    AWS_REGION               default us-east-1
+    ANOMALY_S3_BUCKET        target bucket (e.g. cl5725-health-monitor-anomalies)
+
+If S3 env vars are missing the BC node still runs — it just skips the
+archival step and logs a warning.  This keeps local development unblocked.
 """
 from __future__ import annotations
 import argparse
@@ -29,6 +45,63 @@ from message import Envelope, MSG_ANOMALY, MSG_BC_LOGGED
 
 THIS_DIR = Path(__file__).parent
 DEPLOYMENT_PATH = THIS_DIR / "deployment.json"
+
+
+class S3Archiver:
+    """Uploads raw anomaly JSON to S3 before on-chain submission.
+
+    The bucket name is read from ANOMALY_S3_BUCKET; the AWS credentials
+    come from standard boto3 resolution (env vars, IAM role, ~/.aws/credentials).
+    If boto3 isn't installed or the bucket env var isn't set, archival is
+    silently disabled and the BC node continues without it.
+    """
+
+    def __init__(self):
+        self.bucket = os.environ.get("ANOMALY_S3_BUCKET")
+        self.region = os.environ.get("AWS_REGION", "us-east-1")
+        self.client = None
+        if not self.bucket:
+            return
+        try:
+            import boto3
+            self.client = boto3.client("s3", region_name=self.region)
+        except ImportError:
+            print("[bc] boto3 not installed; S3 archival disabled.")
+            self.client = None
+        except Exception as e:
+            print(f"[bc] S3 client init failed: {e}; archival disabled.")
+            self.client = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.client is not None and self.bucket is not None
+
+    async def archive(self, ev: dict) -> str | None:
+        """Upload the raw anomaly JSON; return the s3:// URI or None on failure."""
+        if not self.enabled:
+            return None
+        event_hash_hex = ev.get("hash", "")
+        if event_hash_hex.startswith("0x"):
+            key_stem = event_hash_hex[2:]
+        else:
+            key_stem = event_hash_hex
+        key = f"anomalies/{key_stem}.json"
+        body = json.dumps(ev, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+        def _put():
+            self.client.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=body,
+                ContentType="application/json",
+            )
+
+        try:
+            await asyncio.to_thread(_put)
+            return f"s3://{self.bucket}/{key}"
+        except Exception as e:
+            print(f"[bc] S3 archive failed for {key_stem[:12]}: {e}")
+            return None
 
 
 def _load_deployment() -> tuple[str, list]:
@@ -176,6 +249,11 @@ async def _main():
         node_id=f"bc-{args.port}", bootstrap=args.bootstrap,
     )
     nonces = NonceManager(w3, acct.address)
+    archiver = S3Archiver()
+    if archiver.enabled:
+        print(f"[bc] S3 archival enabled: bucket={archiver.bucket} region={archiver.region}")
+    else:
+        print("[bc] S3 archival disabled (set ANOMALY_S3_BUCKET in .env to enable)")
 
     # Simple de-dup across restarts (in-memory).
     seen: set[str] = set()
@@ -188,7 +266,15 @@ async def _main():
         seen.add(h)
         node.log.info("submitting anomaly %s to Sepolia ...", h[:16])
         try:
+            # 1) Archive raw JSON to S3 first so the off-chain record exists
+            #    *before* the on-chain hash is permanent.
+            s3_uri = await archiver.archive(ev)
+            if s3_uri:
+                node.log.info("archived raw anomaly to %s", s3_uri)
+            # 2) Submit hash to chain.
             summary = await _submit(w3, acct, contract, ev, nonces)
+            if s3_uri:
+                summary["s3_uri"] = s3_uri
             node.log.info(
                 "on-chain block=%d tx=%s", summary["block_number"], summary["tx_hash"]
             )

@@ -100,18 +100,33 @@ function handleAnomaly(msg) {
   while (anomBody.children.length > 25) anomBody.lastChild.remove();
 }
 
+function s3HttpUrl(uri) {
+  // s3://bucket/key  ->  https://bucket.s3.amazonaws.com/key
+  if (!uri || !uri.startsWith("s3://")) return null;
+  const rest = uri.slice("s3://".length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return null;
+  const bucket = rest.slice(0, slash);
+  const key = rest.slice(slash + 1);
+  return `https://${bucket}.s3.amazonaws.com/${key}`;
+}
+
 function handleBC(msg) {
   bcCount += 1;
   bcCountEl.textContent = bcCount;
   const r = msg.payload;
   const tr = document.createElement("tr");
   const etherscan = `https://sepolia.etherscan.io/tx/${r.tx_hash}`;
+  const s3http = s3HttpUrl(r.s3_uri);
+  const s3Cell = s3http
+    ? `<a href="${s3http}" target="_blank" rel="noreferrer">raw JSON</a>`
+    : `<span class="dim">—</span>`;
   tr.innerHTML = `
     <td class="mono">${fmtTime(r.ts_submitted)}</td>
     <td>${r.anomaly_kind}</td>
-    <td>${r.device_id}</td>
     <td>${r.block_number}</td>
     <td><a href="${etherscan}" target="_blank" rel="noreferrer">${shortAddr(r.tx_hash)}</a></td>
+    <td>${s3Cell}</td>
   `;
   bcBody.prepend(tr);
   while (bcBody.children.length > 25) bcBody.lastChild.remove();

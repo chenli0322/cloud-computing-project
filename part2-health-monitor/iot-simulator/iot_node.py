@@ -4,8 +4,11 @@ IoT P2P node.
 Runs a PeerNode with role="iot", periodically samples the simulated sensor,
 and broadcasts MSG_SENSOR envelopes to all peers directly (no broker).
 
-Optional: also publishes the raw reading to Azure IoT Hub via MQTT
-(disabled unless AZURE_IOT_CONN_STR env var is set).
+Also publishes the raw reading to Azure IoT Hub via MQTT 8883/TLS, satisfying
+the "IoT PaaS" requirement (the IoT Hub connection string is loaded from the
+local .env or AZURE_IOT_CONN_STR env var). Without that variable set the
+Azure path is silently disabled and the node continues to run as a pure P2P
+peer for local development.
 """
 from __future__ import annotations
 import argparse
@@ -14,6 +17,8 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "p2p-network"))
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -21,14 +26,21 @@ from peer_node import PeerNode
 from message import MSG_SENSOR
 from sensor_simulator import SensorSimulator
 
+THIS_DIR = Path(__file__).parent
+
 
 async def _publish_loop(node: PeerNode, sim: SensorSimulator, interval: float, azure_pub):
+    azure_count = 0
     while True:
         reading = sim.sample().to_dict()
         await node.broadcast(MSG_SENSOR, reading)
         if azure_pub is not None:
             try:
-                azure_pub(reading)
+                ok = azure_pub(reading)
+                if ok:
+                    azure_count += 1
+                    if azure_count == 1 or azure_count % 10 == 0:
+                        node.log.info("azure: published %d messages so far", azure_count)
             except Exception as e:
                 node.log.warning("azure publish failed: %s", e)
         node.log.info(
@@ -41,24 +53,31 @@ async def _publish_loop(node: PeerNode, sim: SensorSimulator, interval: float, a
 
 def _maybe_azure_publisher():
     """
-    Returns a callable(reading_dict) -> None if AZURE_IOT_CONN_STR is set.
-    We lazy-import because paho-mqtt may not be installed yet in dev.
+    Returns a callable(reading_dict) -> bool if AZURE_IOT_CONN_STR is set.
+    Returns None (and prints why) if the env var or paho-mqtt is missing.
     """
+    load_dotenv(THIS_DIR / ".env")
     conn = os.environ.get("AZURE_IOT_CONN_STR")
     if not conn:
+        print("[iot] AZURE_IOT_CONN_STR not set; Azure IoT Hub bridge disabled.")
         return None
     try:
         import json
         import ssl
         import paho.mqtt.client as mqtt
     except ImportError:
-        print("paho-mqtt not installed; skipping Azure IoT Hub publishing.")
+        print("[iot] paho-mqtt not installed; pip install paho-mqtt")
         return None
 
     # conn format: "HostName=xxx.azure-devices.net;DeviceId=dev;SharedAccessKey=..."
-    parts = dict(kv.split("=", 1) for kv in conn.split(";"))
-    host = parts["HostName"]
-    device_id = parts["DeviceId"]
+    try:
+        parts = dict(kv.split("=", 1) for kv in conn.split(";"))
+        host = parts["HostName"]
+        device_id = parts["DeviceId"]
+        shared_key = parts["SharedAccessKey"]
+    except Exception as e:
+        print(f"[iot] AZURE_IOT_CONN_STR malformed: {e}")
+        return None
 
     import urllib.parse, hmac, hashlib, base64, time as _time
 
@@ -74,18 +93,41 @@ def _maybe_azure_publisher():
         )
 
     uri = f"{host}/devices/{device_id}"
-    token = sas_token(uri, parts["SharedAccessKey"])
+    token = sas_token(uri, shared_key)
 
     client = mqtt.Client(client_id=device_id, protocol=mqtt.MQTTv311)
     client.username_pw_set(f"{host}/{device_id}/?api-version=2021-04-12", token)
     ctx = ssl.create_default_context()
     client.tls_set_context(ctx)
-    client.connect(host, 8883)
+
+    connected = {"ok": False}
+
+    def on_connect(c, _ud, _flags, rc):
+        if rc == 0:
+            connected["ok"] = True
+            print(f"[iot] azure IoT Hub connected: {host} device={device_id}")
+        else:
+            print(f"[iot] azure IoT Hub connect failed rc={rc}")
+
+    def on_disconnect(c, _ud, rc):
+        connected["ok"] = False
+        print(f"[iot] azure IoT Hub disconnected rc={rc}")
+
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+
+    try:
+        client.connect(host, 8883)
+    except Exception as e:
+        print(f"[iot] azure connect raised {e}; bridge disabled.")
+        return None
     client.loop_start()
     topic = f"devices/{device_id}/messages/events/"
+    print(f"[iot] azure publishing to topic={topic}")
 
-    def publish(reading):
-        client.publish(topic, json.dumps(reading), qos=1)
+    def publish(reading) -> bool:
+        info = client.publish(topic, json.dumps(reading), qos=1)
+        return info.rc == 0
 
     return publish
 
